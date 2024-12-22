@@ -1,19 +1,22 @@
 from flask import Flask, request, jsonify
 import joblib
-import numpy as np
 import os
+import pandas as pd
+import numpy as np
 
 app = Flask(__name__)
 
 # Definim el camí base per als models
 base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'models'))
 
-# Carreguem els models i preprocessadors
+# Carreguem els models
 logistic_regression_model = joblib.load(os.path.join(base_path, 'logistic_regression.pkl'))
-random_forest_model = joblib.load(os.path.join(base_path, 'random_forest.pkl'))
+decision_tree_model = joblib.load(os.path.join(base_path, 'decision_tree.pkl'))
 svm_model = joblib.load(os.path.join(base_path, 'svm.pkl'))
 knn_model = joblib.load(os.path.join(base_path, 'knn.pkl'))
-dict_vectorizer = joblib.load(os.path.join(base_path, 'dict_vectorizer.pkl'))
+
+# Carreguem el vectoritzador i l'escalador utilitzats a classificacio_propia.ipynb
+vectorizer = joblib.load(os.path.join(base_path, 'vectorizer.pkl'))
 scaler = joblib.load(os.path.join(base_path, 'scaler.pkl'))
 
 # Definim el mapeig de les espècies
@@ -21,16 +24,30 @@ species_mapping = {0: 'Adelie', 1: 'Chinstrap', 2: 'Gentoo'}
 
 # Funció per preprocessar les dades d'entrada
 def preprocess_input(data):
-    data_dict = [data]
-    transformed_data = dict_vectorizer.transform(data_dict)
-    scaled_data = scaler.transform(transformed_data)
-    return scaled_data
+    df = pd.DataFrame([data])
+    categorical_features = df.select_dtypes(include=["object"]).columns
+    numerical_features = df.select_dtypes(exclude=["object"]).columns
+    
+    # Codificació One-Hot
+    data_dict = df[categorical_features].to_dict(orient='records')
+    data_categorical = vectorizer.transform(data_dict)
+    
+    # Escalar les característiques numèriques
+    data_numerical = scaler.transform(df[numerical_features])
+    
+    # Combinar característiques numèriques i categòriques
+    data_prepared = np.hstack((data_numerical, data_categorical))
+    
+    return data_prepared
 
 # Funció per obtenir la predicció del model
 def get_prediction(model, data):
     prediction = model.predict(data)[0]
-    probability = model.predict_proba(data)[0].max()
     species = species_mapping[prediction]
+    if hasattr(model, "predict_proba"):
+        probability = model.predict_proba(data)[0].max()
+    else:
+        probability = "N/A"
     return species, probability
 
 # Ruta per fer prediccions amb el model especificat
@@ -41,8 +58,8 @@ def predict(model_name):
     
     if model_name == 'logistic_regression':
         species, probability = get_prediction(logistic_regression_model, processed_data)
-    elif model_name == 'random_forest':
-        species, probability = get_prediction(random_forest_model, processed_data)
+    elif model_name == 'decision_tree':
+        species, probability = get_prediction(decision_tree_model, processed_data)
     elif model_name == 'svm':
         species, probability = get_prediction(svm_model, processed_data)
     elif model_name == 'knn':
